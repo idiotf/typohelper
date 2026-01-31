@@ -42,7 +42,7 @@ const selectedObjectId = ref(null);
 let isDraggingObject = ref(false);
 let isResizing = ref(false);
 let isRotating = ref(false);
-let objectDragStart = { x: 0, y: 0, objX: 0, objY: 0 };
+let objectDragStart = { x: 0, y: 0, objX: 0, objY: 0, axisLock: null };
 let resizeHandle = "";
 let rotateStart = { x: 0, y: 0, rotation: 0 };
 let copiedObject = null;
@@ -120,7 +120,7 @@ const unscaleClientPoint = (clientX, clientY) => {
 // - camera space: 화면 중심 기준(px), 회전/줌이 적용된 "뷰" 좌표
 const worldToCameraPoint = (worldX, worldY) => {
   const dx = (worldX - camWorldX.value) * camZoom.value;
-  const dy = (worldY - camWorldY.value) * camZoom.value;
+  const dy = -(worldY - camWorldY.value) * camZoom.value;
   const rot = (-camRot.value * Math.PI) / 180;
   const cos = Math.cos(rot);
   const sin = Math.sin(rot);
@@ -136,7 +136,7 @@ const cameraToWorldPoint = (camPX, camPY) => {
   const sin = Math.sin(rot);
   return {
     x: camWorldX.value + (camPX * cos - camPY * sin) / camZoom.value,
-    y: camWorldY.value + (camPX * sin + camPY * cos) / camZoom.value,
+    y: camWorldY.value - (camPX * sin + camPY * cos) / camZoom.value,
   };
 };
 
@@ -192,7 +192,7 @@ const prevWorldTransform = computed(() => {
   const worldY = cam?.camWorldY ?? 0;
 
   return {
-    transform: `scale(${zoom}) rotate(${-rot}deg) translate(${-worldX}px, ${-worldY}px)`,
+    transform: `scale(${zoom}) rotate(${-rot}deg) translate(${-worldX}px, ${worldY}px)`,
     "--inv-zoom": String(1 / (zoom || 1)),
   };
 });
@@ -210,18 +210,21 @@ const selectScene = (sceneId) => {
 };
 
 const addScene = () => {
-  const current = getActiveScene();
-  const baseObjects = current?.objects ?? objects.value;
-  const baseCamera = current?.camera ?? getCameraState();
+  const baseObjects = objects.value;
+  const baseCamera = getCameraState();
 
   const newScene = {
     id: ++sceneIdCounter,
-    name: `장면 ${sceneIdCounter}`,
+    name: `프레임 ${sceneIdCounter}`,
     objects: baseObjects.map((o) => cloneObject(o)),
     camera: { ...baseCamera },
   };
 
-  scenes.value.push(newScene);
+  const activeIndex = scenes.value.findIndex(
+    (s) => s.id === activeSceneId.value,
+  );
+  const insertIndex = activeIndex >= 0 ? activeIndex + 1 : scenes.value.length;
+  scenes.value.splice(insertIndex, 0, newScene);
   selectScene(newScene.id);
 };
 
@@ -251,7 +254,7 @@ const deleteScene = (sceneId) => {
 (() => {
   const initialScene = {
     id: ++sceneIdCounter,
-    name: `장면 ${sceneIdCounter}`,
+    name: `프레임 ${sceneIdCounter}`,
     objects: objects.value,
     camera: getCameraState(),
   };
@@ -397,6 +400,7 @@ const startObjectDrag = (e, obj) => {
     y: pointer.y,
     objX: obj.x,
     objY: obj.y,
+    axisLock: null,
   };
 };
 
@@ -419,12 +423,37 @@ const handleObjectDrag = (e) => {
   const worldDx = (dx * cos - dy * sin) / zoom;
   const worldDy = (dx * sin + dy * cos) / zoom;
 
-  obj.x = objectDragStart.objX + worldDx;
-  obj.y = objectDragStart.objY + worldDy;
+  let nextX = objectDragStart.objX + worldDx;
+  let nextY = objectDragStart.objY + worldDy;
+
+  if (e.shiftKey) {
+    if (!objectDragStart.axisLock) {
+      const absX = Math.abs(worldDx);
+      const absY = Math.abs(worldDy);
+      // 미세한 흔들림에서는 축을 확정하지 않음
+      if (absX > 0.5 || absY > 0.5) {
+        // 더 크게 움직인 축 방향으로만 이동 허용
+        objectDragStart.axisLock = absX >= absY ? "x" : "y";
+      }
+    }
+
+    // axisLock: "x" => 수평 이동만(= Y 고정), "y" => 수직 이동만(= X 고정)
+    if (objectDragStart.axisLock === "x") {
+      nextY = objectDragStart.objY;
+    } else if (objectDragStart.axisLock === "y") {
+      nextX = objectDragStart.objX;
+    }
+  } else {
+    objectDragStart.axisLock = null;
+  }
+
+  obj.x = nextX;
+  obj.y = nextY;
 };
 
 const stopObjectDrag = () => {
   isDraggingObject.value = false;
+  objectDragStart.axisLock = null;
 };
 
 const startResize = (e, handle, obj) => {
@@ -779,7 +808,7 @@ const stopScenesSidebarDrag = () => {
 
 const worldTransform = computed(() => {
   return {
-    transform: `scale(${camZoom.value}) rotate(${-camRot.value}deg) translate(${-camWorldX.value}px, ${-camWorldY.value}px)`,
+    transform: `scale(${camZoom.value}) rotate(${-camRot.value}deg) translate(${-camWorldX.value}px, ${camWorldY.value}px)`,
     "--inv-zoom": String(1 / (camZoom.value || 1)),
   };
 });
@@ -1201,7 +1230,7 @@ const resetCamera = () => {
     >
       <div class="scenes-panel">
         <div class="scenes-header">
-          <div class="scenes-title">장면</div>
+          <div class="scenes-title">프레임</div>
           <button class="scene-add-btn" type="button" @click="addScene">
             + 추가
           </button>
@@ -1225,10 +1254,10 @@ const resetCamera = () => {
               type="button"
               :title="
                 scenes.length <= 1
-                  ? '마지막 장면은 삭제할 수 없습니다'
-                  : '장면 삭제'
+                  ? '마지막 프레임은 삭제할 수 없습니다'
+                  : '프레임 삭제'
               "
-              aria-label="장면 삭제"
+              aria-label="프레임 삭제"
               :disabled="scenes.length <= 1"
               @click.stop="deleteScene(scene.id)"
             >
