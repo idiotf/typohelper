@@ -119,24 +119,36 @@ const unscaleClientPoint = (clientX, clientY) => {
 // 월드 <-> 카메라(화면) 좌표 변환
 // - camera space: 화면 중심 기준(px), 회전/줌이 적용된 "뷰" 좌표
 const worldToCameraPoint = (worldX, worldY) => {
+  // camera 좌표계는 항상 Y가 위쪽(+)이 되도록, Y축 반전을 "회전 전에" 적용한다.
+  // (Y축을 마지막에 반전하면 회전과 섞일 때 방향이 직관과 어긋날 수 있음)
+  // 렌더링 transform:
+  //   scale(zoom) rotate(-rot) translate(-camWorldX, +camWorldY)
+  // 여기서 worldY/camWorldY는 DOM 좌표계(Y 아래 +)이므로, camera space(y 위 +)로 변환해 회전한다.
   const dx = (worldX - camWorldX.value) * camZoom.value;
-  const dy = -(worldY - camWorldY.value) * camZoom.value;
-  const rot = (-camRot.value * Math.PI) / 180;
+  const dy = -(worldY + camWorldY.value) * camZoom.value;
+
+  // CSS의 rotate(-camRot)는 Y-down 기준이므로, Y-up으로 변환한 뒤에는 각도 부호가 반전된다.
+  const rot = (camRot.value * Math.PI) / 180;
   const cos = Math.cos(rot);
   const sin = Math.sin(rot);
+  const rx = dx * cos - dy * sin;
+  const ry = dx * sin + dy * cos;
   return {
-    x: dx * cos - dy * sin,
-    y: dx * sin + dy * cos,
+    x: rx,
+    y: ry,
   };
 };
 
 const cameraToWorldPoint = (camPX, camPY) => {
-  const rot = (camRot.value * Math.PI) / 180;
+  // worldToCameraPoint의 역변환
+  const rot = (-camRot.value * Math.PI) / 180;
   const cos = Math.cos(rot);
   const sin = Math.sin(rot);
+  const dx = (camPX * cos - camPY * sin) / camZoom.value;
+  const dy = (camPX * sin + camPY * cos) / camZoom.value;
   return {
-    x: camWorldX.value + (camPX * cos - camPY * sin) / camZoom.value,
-    y: camWorldY.value - (camPX * sin + camPY * cos) / camZoom.value,
+    x: camWorldX.value + dx,
+    y: -camWorldY.value - dy,
   };
 };
 
@@ -377,7 +389,11 @@ const moveObjectDown = (id) => {
 };
 
 const updateObjectSize = (obj, newSize) => {
-  const aspectRatio = obj.width / obj.height;
+  // width/height가 0이거나 비정상일 때도 입력으로 크기를 복구할 수 있어야 함
+  let aspectRatio = obj.width / obj.height;
+  if (!Number.isFinite(aspectRatio) || aspectRatio <= 0) {
+    aspectRatio = 1;
+  }
   // size = sqrt(width * height)
   // width = size * sqrt(ratio), height = size / sqrt(ratio)
   obj.width = newSize * Math.sqrt(aspectRatio);
@@ -605,29 +621,16 @@ const startRotate = (e, obj) => {
   isRotating.value = true;
   selectedObjectId.value = obj.id;
 
-  // 오브젝트의 월드 중심 좌표 (obj.x, obj.y는 이미 중심)
-  const objCenterWorldX = obj.x;
-  const objCenterWorldY = obj.y;
-
-  // 스크린 중심 좌표(콘텐츠 스케일 고려)
-  const screenRect = e.currentTarget.closest(".screen").getBoundingClientRect();
-  const scaledScreenCenterX = screenRect.left + screenRect.width / 2;
-  const scaledScreenCenterY = screenRect.top + screenRect.height / 2;
-  const { x: screenCenterX, y: screenCenterY } = unscaleClientPoint(
-    scaledScreenCenterX,
-    scaledScreenCenterY,
+  // 현재 화면에 렌더링된 오브젝트의 중심점을 기준으로 회전 (카메라 이동/줌/회전/transform 순서 영향 제거)
+  const objEl = e.currentTarget.closest(".world-object");
+  if (!objEl) return;
+  const objRect = objEl.getBoundingClientRect();
+  const scaledObjCenterX = objRect.left + objRect.width / 2;
+  const scaledObjCenterY = objRect.top + objRect.height / 2;
+  const { x: screenX, y: screenY } = unscaleClientPoint(
+    scaledObjCenterX,
+    scaledObjCenterY,
   );
-
-  // 월드 좌표를 스크린 좌표로 변환
-  const rot = (-camRot.value * Math.PI) / 180;
-  const cos = Math.cos(rot);
-  const sin = Math.sin(rot);
-
-  const relX = (objCenterWorldX - camWorldX.value) * camZoom.value;
-  const relY = (objCenterWorldY - camWorldY.value) * camZoom.value;
-
-  const screenX = relX * cos - relY * sin + screenCenterX;
-  const screenY = relX * sin + relY * cos + screenCenterY;
 
   const pointer = unscaleClientPoint(e.clientX, e.clientY);
 
@@ -718,8 +721,9 @@ if (typeof window !== "undefined") {
 
         if (e.key === "ArrowLeft") setObjectCameraX(obj, p.x - 1);
         if (e.key === "ArrowRight") setObjectCameraX(obj, p.x + 1);
-        if (e.key === "ArrowUp") setObjectCameraY(obj, p.y - 1);
-        if (e.key === "ArrowDown") setObjectCameraY(obj, p.y + 1);
+        // camera 좌표계는 Y 위쪽이 +
+        if (e.key === "ArrowUp") setObjectCameraY(obj, p.y + 1);
+        if (e.key === "ArrowDown") setObjectCameraY(obj, p.y - 1);
       }
     }
 
