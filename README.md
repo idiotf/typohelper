@@ -1,5 +1,6 @@
-# Vue 3 + Vite
+# typoHelper
 
-This template should help get you started developing with Vue 3 in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+타이포 제작 시, 카메라와 오브젝트 위치 조정을 미리 시뮬레이션해볼 수 있는 웹사이트입니다.
 
-Learn more about IDE Support for Vue in the [Vue Docs Scaling up Guide](https://vuejs.org/guide/scaling-up/tooling.html#ide-support).
+자세한 사용법은 아래 링크를 참고하세요.
+https://playentry.org/community/tips/697db740fcc2be1209a6bbba
