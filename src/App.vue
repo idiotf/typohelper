@@ -294,11 +294,12 @@ const addImageObject = () => {
   input.onchange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      const rawPromise = file.arrayBuffer();
       const reader = new FileReader();
       reader.onload = (event) => {
         // 이미지 로드 후 원본 비율 계산
         const img = new Image();
-        img.onload = () => {
+        img.onload = async () => {
           const aspectRatio = img.naturalWidth / img.naturalHeight;
           const baseSize = 100 / camZoom.value;
           const width = baseSize;
@@ -315,6 +316,7 @@ const addImageObject = () => {
             width: width,
             height: height,
             src: event.target.result,
+            raw: new Uint8Array(await rawPromise),
           });
         };
         img.src = event.target.result;
@@ -858,15 +860,6 @@ const resetCamera = () => {
 const anchor = document.createElement("a");
 anchor.download = "output.ent";
 
-/**
- * @param {Iterable<number>} data
- */
-const toBase64 = data => {
-  const arr = [...data];
-  const latin1 = arr.map(v => String.fromCharCode(v)).join("");
-  return btoa(latin1);
-};
-
 const exportToEntryProject = () => {
   const out = scenesToProject(scenes.value, {
     x: camX.value,
@@ -875,9 +868,11 @@ const exportToEntryProject = () => {
     scale: camZoom.value,
   });
 
-  const base64 = toBase64(out);
-  anchor.href = `data:application/x-entryapp;base64,${base64}`;
+  const blob = new Blob([out]);
+  anchor.href = URL.createObjectURL(blob);
   anchor.click();
+
+  setTimeout(URL.revokeObjectURL, 100, anchor.href);
 };
 </script>
 

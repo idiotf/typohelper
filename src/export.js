@@ -4,7 +4,7 @@ import Tar from "tar-js";
 
 /** @typedef {{ id: string; name: string; objects: Obj[] }} Scene */
 /** @typedef {{ name: string; x: number; y: number; width: number; height: number; scale: number; rotation: number }} BaseObj */
-/** @typedef {BaseObj & { src: string; type: "image" }} ImageObj */
+/** @typedef {BaseObj & { raw: Uint8Array; type: "image" }} ImageObj */
 /** @typedef {BaseObj & { content: string; type: "text"; fontSize: number }} TextObj */
 /** @typedef {ImageObj | TextObj} Obj */
 /** @typedef {{ path: string; data: Uint8Array }} Asset */
@@ -109,7 +109,7 @@ const getBaseObjectData = (obj, scene, isLast) => {
       { type: "start_scene", params: [scene] },
     ] : [], [
       { type: "when_scene_start" },
-      { type: "create_clone" },
+      { type: "create_clone", params: ["self"] },
     ], [
       { type: "when_clone_start" },
       { type: "show" },
@@ -158,6 +158,7 @@ const getTextObjectData = (obj, scene, isLast) => ({
   entity: {
     ...getBaseEntityData(obj),
     font: `${obj.fontSize}px Inter,Pretendard,system-ui,-apple-system,sans-serif`,
+    bgColor: "#fff",
   },
   sprite: {
     ...getBaseSpriteData(),
@@ -199,7 +200,7 @@ const getImageObjectData = (obj, scene, isLast) => {
           width: Math.round(obj.width),
           height: Math.round(obj.height),
         },
-        [dataSymbol]: parseDataUrl(obj.src),
+        [dataSymbol]: obj.raw,
       }],
     },
   };
@@ -221,19 +222,6 @@ const getObjectData = (obj, sceneId, isLast) => {
  */
 const getAssetPath = (filename, imageType) =>
   `temp/${filename.substring(0, 2)}/${filename.substring(2, 4)}/image/${filename}.${imageType}`;
-
-const dataUrlRegex = /^data:(?:.+)\/(?:.+);base64,(.+)$/;
-
-/**
- * @param {string} src
- */
-const parseDataUrl = src => {
-  const base64 = dataUrlRegex.exec(src)?.[1];
-  if (!base64) throw TypeError(`not data url: ${src}`);
-
-  const arr = atob(base64).split("").map(v => v.charCodeAt(0));
-  return new Uint8Array(arr);
-};
 
 /**
  * @param {Scene[]} scenes
